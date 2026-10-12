@@ -7,7 +7,7 @@ action=${1:-}; version=${2:-}
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 case "$action" in
 check)
-  bash -n scripts/ictrek_build.sh scripts/ictrek_release.sh
+  bash -n scripts/ictrek_build.sh scripts/ictrek_release.sh scripts/reuse_native_component.sh scripts/build_image.sh scripts/feishu_release.sh
   git diff --check
   ;;
 build|release|retry)

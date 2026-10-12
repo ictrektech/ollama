@@ -10,6 +10,7 @@ on:
         type: string
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: ictrek-release-${{ github.ref }}
   cancel-in-progress: false
@@ -27,7 +28,7 @@ jobs:
           version="${INPUT_VERSION:-$GITHUB_REF_NAME}"
           [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+_[0-9]{8}$ ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          bash -n scripts/ictrek_build.sh scripts/ictrek_release.sh
+          bash -n scripts/ictrek_build.sh scripts/ictrek_release.sh scripts/reuse_native_component.sh scripts/build_image.sh scripts/feishu_release.sh
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
@@ -51,7 +52,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      - name: Reuse unchanged native components from previous candidate
+        id: native
+        if: matrix.component != 'base'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          COMPONENT: ${{ matrix.component }}
+        run: bash scripts/reuse_native_component.sh "$ARCH" "$COMPONENT" "$VERSION" "$RUNNER_TEMP"
       - name: Build component
+        if: steps.native.outputs.reused != 'true'
         env:
           VERSION: ${{ needs.verify.outputs.version }}
           ARCH: ${{ matrix.arch }}

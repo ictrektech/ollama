@@ -1448,6 +1448,30 @@ func TestCheckPullRequires(t *testing.T) {
 		wantMessage   string
 	}{
 		{
+			name:          "dated ictrek release satisfies older requirement",
+			requires:      "0.30.0",
+			clientVersion: "0.40.3_20261012",
+		},
+		{
+			name:          "dated ictrek release satisfies exact requirement",
+			requires:      "0.40.3",
+			clientVersion: "0.40.3_20261012",
+		},
+		{
+			name:          "dated ictrek release does not satisfy newer requirement",
+			requires:      "0.40.4",
+			clientVersion: "0.40.3_20261012",
+			wantErr:       true,
+			wantMessage:   "model requires ollama version v0.40.4 or newer (current version is v0.40.3_20261012)",
+		},
+		{
+			name:          "invalid date suffix remains invalid",
+			requires:      "0.30.0",
+			clientVersion: "0.40.3_2026bad",
+			wantErr:       true,
+			wantMessage:   "model requires ollama version v0.30.0 or newer (current version is v0.40.3_2026bad)",
+		},
+		{
 			name:          "empty requires passes",
 			requires:      "",
 			clientVersion: "0.33.3",

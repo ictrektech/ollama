@@ -1382,7 +1382,12 @@ func checkPullRequires(requires, clientVersion string) error {
 		return nil
 	}
 	// Prerelease builds must be able to test models targeting their release.
-	currentVersion, _, _ := strings.Cut(semver.Canonical("v"+clientVersion), "-")
+	comparisonVersion := clientVersion
+	// ictrek release dates are metadata, not part of the upstream version.
+	if base, date, ok := strings.Cut(clientVersion, "_"); ok && len(date) == 8 && strings.IndexFunc(date, func(r rune) bool { return r < '0' || r > '9' }) == -1 {
+		comparisonVersion = base
+	}
+	currentVersion, _, _ := strings.Cut(semver.Canonical("v"+comparisonVersion), "-")
 	if semver.Compare(requires, currentVersion) > 0 {
 		return fmt.Errorf("model requires ollama version %s or newer (current version is v%s)", requires, clientVersion)
 	}

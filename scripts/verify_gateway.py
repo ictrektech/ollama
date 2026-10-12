@@ -54,7 +54,7 @@ def main():
                 time.sleep(1)
         else:
             raise RuntimeError("server startup timed out")
-        models = ["qllama/bge-reranker-v2-m3:q8_0", "AuditAid/Qwen3_Reranker:0.6B_Q8", "qwen3:0.6b", "all-minilm"]
+        models = ["qllama/bge-reranker-v2-m3:q8_0", "AuditAid/Qwen3_Reranker:0.6B_Q8", "qwen3:0.6b", "all-minilm", "qwen3.5:2b"]
         for model in models:
             print(f"pull {model}", flush=True)
             api("/api/pull", {"model": model, "stream": False})
@@ -79,6 +79,11 @@ def main():
         assert api("/v1/completions", {"model": "qwen3:0.6b", "prompt": "Hello", "think": False,
                    "stream": False, "options": {"num_predict": 8, "num_gpu": 0, "num_thread": 4}}, compat)["choices"]
         assert api("/v1/embeddings", {"model": "all-minilm", "input": "hello"})["data"]
+        # Model Hub's default QA model declares a minimum Ollama version.
+        # Exercise it with the real dated release binary, not a 0.0.0 dev build.
+        qa = dict(chat, model="qwen3.5:2b", keep_alive=0)
+        assert api("/api/chat", qa)["message"]["content"]
+        assert api("/v1/chat/completions", qa, compat)["choices"][0]["message"]["content"]
 
         # Read one SSE chunk, then close the socket during a long generation.
         stream_body = dict(chat, stream=True, messages=[{"role": "user", "content": "Write a very long story."}],
@@ -98,7 +103,7 @@ def main():
             time.sleep(0.1)
         else:
             raise AssertionError("cancelled request leaked active metrics slot")
-        print("PASS: both ports, native/OpenAI APIs, BGE/Qwen rerank, embedding, SSE, cancellation, metrics", flush=True)
+        print("PASS: both ports, native/OpenAI APIs, BGE/Qwen rerank, Qwen3.5 QA, embedding, SSE, cancellation, metrics", flush=True)
     finally:
         server.terminate()
         try:

@@ -55,6 +55,8 @@ bash scripts/ictrek_release.sh retry v0.40.3_20261012
 
 产物：amd64/arm64 的 CPU+CUDA 主包，以及 JetPack 5/6 附加包、`sha256sum.txt`。版本写入二进制、OCI label、Release tag/title，格式为 `vX.Y.Z_YYYYMMDD`。正式 Release 保留完整 tag，不使用官方候选版本归并逻辑。自有 tag 不触发官方完整跨平台 release 或官方 Docker latest 流程。
 
+模型的最低版本要求按日期后缀之前的基础版本比较，例如 `0.40.3_20261012` 满足 `0.30.0`，但不能满足 `0.40.4`。同版本候选重试时，仅在 Dockerfile、原生源码、版本和编译脚本完全一致且原任务成功的情况下复用 CUDA/JetPack 产物；Go/base 始终重新构建。
+
 发布顺序：源码编译 → 压缩包作为 CI artifact → amd64/arm64 真实模型验证 → 从同一压缩包解压组装镜像 → 双端口容器检查 → SWR 推送与飞书读回 → 公开 GitHub Release。镜像不会再次编译 Ollama；无需先公开 Release 再下载。任何前置步骤失败，GitHub Release 都不会公开。
 
 ## 镜像与飞书
@@ -80,4 +82,4 @@ bash scripts/build_image.sh --target thor --version v0.40.3_20261012 --package-d
 
 `--no-publish` 只构建；`--dry-run` 只显示计划；`--sheet-title` 可重复指定。发布流程为 build → 双端口容器检查 → push → manifest 检查 → 写飞书 → 精确读回。固定 spreadsheet ID 为 `Htotsn3oahO1zxt73YMcaB1zn8e`；认证来自 `FEISHU_APP_ID/SECRET` 或构建主机 `~/.feishu.json`。CI 需 `SWR_USERNAME`、`SWR_PASSWORD`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 四个 secrets。
 
-真实模型验证入口：`python3 scripts/verify_gateway.py --binary /path/to/bin/ollama --work-dir /path/to/isolated-test`。它使用独立模型目录和 19134/19135 端口，测试 BGE/Qwen3 rerank、原生/OpenAI chat、completion、embedding、SSE 取消和共享 metrics；不会重启已有服务。GPU 驱动和加速行为仍需在对应硬件验证。
+真实模型验证入口：`python3 scripts/verify_gateway.py --binary /path/to/bin/ollama --work-dir /path/to/isolated-test`。它使用独立模型目录和 19134/19135 端口，测试 BGE/Qwen3 rerank、Model Hub 默认 `qwen3.5:2b` QA、原生/OpenAI chat、completion、embedding、SSE 取消和共享 metrics；不会重启已有服务。GPU 驱动和加速行为仍需在对应硬件验证。
