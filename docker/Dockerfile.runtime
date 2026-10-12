@@ -1,0 +1,14 @@
+ARG BASE_IMAGE=ubuntu:24.04
+FROM ${BASE_IMAGE}
+RUN chmod 1777 /tmp && apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+COPY payload/bin/ollama /usr/bin/ollama
+COPY payload/lib/ollama /usr/lib/ollama
+ENV OLLAMA_HOST=0.0.0.0:11434 \
+    OLLAMA_COMPAT_LISTEN=0.0.0.0:11535 \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    NVIDIA_VISIBLE_DEVICES=all \
+    LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
+EXPOSE 11434 11535
+ENTRYPOINT ["/usr/bin/ollama"]
+CMD ["serve"]

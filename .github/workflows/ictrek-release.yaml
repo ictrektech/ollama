@@ -1,0 +1,172 @@
+name: ictrek Linux release
+on:
+  push:
+    tags: ['v*_*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version: vX.Y.Z_YYYYMMDD (build verification, no publication)'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: ictrek-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-$GITHUB_REF_NAME}"
+          [[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+_[0-9]{8}$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          bash -n scripts/ictrek_build.sh scripts/ictrek_release.sh
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test -race ./openai ./llm ./server ./fs/gguf
+  build:
+    needs: verify
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, component: base, runner: ubuntu-24.04}
+          - {arch: amd64, component: cuda12, runner: ubuntu-24.04}
+          - {arch: amd64, component: cuda13, runner: ubuntu-24.04}
+          - {arch: arm64, component: base, runner: ubuntu-24.04-arm}
+          - {arch: arm64, component: cuda12, runner: ubuntu-24.04-arm}
+          - {arch: arm64, component: cuda13, runner: ubuntu-24.04-arm}
+          - {arch: arm64, component: jetpack5, runner: ubuntu-24.04-arm}
+          - {arch: arm64, component: jetpack6, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build component
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          ARCH: ${{ matrix.arch }}
+          COMPONENT: ${{ matrix.component }}
+        run: |
+          bash scripts/ictrek_build.sh build "$ARCH" "$COMPONENT" "$VERSION" "$RUNNER_TEMP/component"
+          tar -C "$RUNNER_TEMP/component" -cf "$RUNNER_TEMP/component.tar" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.arch }}-${{ matrix.component }}
+          path: ${{ runner.temp }}/component.tar
+          retention-days: 7
+  package:
+    needs: [verify, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: components
+      - name: Assemble and verify packages
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          for dir in components/*; do tar -xf "$dir/component.tar" -C "$dir"; rm "$dir/component.tar"; done
+          bash scripts/ictrek_build.sh package "$VERSION" components dist
+          mkdir -p "$RUNNER_TEMP/ollama"
+          zstd -dc dist/ollama-linux-amd64.tar.zst | tar -xf - -C "$RUNNER_TEMP/ollama"
+          "$RUNNER_TEMP/ollama/bin/ollama" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ictrek-linux-release
+          path: dist/*
+          retention-days: 30
+  smoke:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ictrek-linux-release
+          path: dist
+      - name: Verify real models and both listeners
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          mkdir -p "$RUNNER_TEMP/payload"
+          zstd -dc "dist/ollama-linux-$ARCH.tar.zst" | tar -xf - -C "$RUNNER_TEMP/payload"
+          python3 scripts/verify_gateway.py --binary "$RUNNER_TEMP/payload/bin/ollama" --work-dir "$RUNNER_TEMP/verification"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-${{ matrix.arch }}
+          path: ${{ runner.temp }}/verification/server.log
+  images:
+    needs: [verify, package, smoke]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {target: amd, runner: ubuntu-24.04}
+          - {target: arm, runner: ubuntu-24.04-arm}
+          - {target: l4t, runner: ubuntu-24.04-arm}
+          - {target: thor, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ictrek-linux-release
+          path: dist
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: github.event_name == 'push'
+        with:
+          registry: swr.cn-southwest-2.myhuaweicloud.com
+          username: ${{ secrets.SWR_USERNAME }}
+          password: ${{ secrets.SWR_PASSWORD }}
+      - name: Build image and publish to SWR/Feishu for release tags
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+          TARGET: ${{ matrix.target }}
+          EVENT: ${{ github.event_name }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+        run: |
+          sudo apt-get update && sudo apt-get install -y zstd
+          args=()
+          if [[ "$EVENT" != push ]]; then args+=(--no-publish); fi
+          bash scripts/build_image.sh --target "$TARGET" --version "$VERSION" --package-dir dist "${args[@]}"
+  publish:
+    if: github.event_name == 'push'
+    needs: [verify, package, smoke, images]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ictrek-linux-release
+          path: dist
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: gh release create "$VERSION" dist/* --verify-tag --title "$VERSION" --generate-notes

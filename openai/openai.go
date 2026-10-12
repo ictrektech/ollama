@@ -31,21 +31,25 @@ type ErrorResponse struct {
 }
 
 type Message struct {
-	Role       string     `json:"role"`
-	Content    any        `json:"content"`
-	Reasoning  string     `json:"reasoning,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	Thinking         string     `json:"thinking,omitempty"`
+	ToolName         string     `json:"tool_name,omitempty"`
+	Role             string     `json:"role"`
+	Content          any        `json:"content"`
+	Reasoning        string     `json:"reasoning,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }
 
 // Delta is used in streaming chunk responses. All fields use omitempty so
 // that a finish chunk produces a truly empty delta `{}` matching the OpenAI spec.
 type Delta struct {
-	Role      string     `json:"role,omitempty"`
-	Content   any        `json:"content,omitempty"`
-	Reasoning string     `json:"reasoning,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	Role             string     `json:"role,omitempty"`
+	Content          any        `json:"content,omitempty"`
+	Reasoning        string     `json:"reasoning,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 }
 
 type ChoiceLogprobs struct {
@@ -109,24 +113,28 @@ type Reasoning struct {
 }
 
 type ChatCompletionRequest struct {
-	Model            string          `json:"model"`
-	Messages         []Message       `json:"messages"`
-	Stream           bool            `json:"stream"`
-	StreamOptions    *StreamOptions  `json:"stream_options"`
-	MaxTokens        *int            `json:"max_tokens"`
-	Seed             *int            `json:"seed"`
-	Stop             any             `json:"stop"`
-	Temperature      *float64        `json:"temperature"`
-	FrequencyPenalty *float64        `json:"frequency_penalty"`
-	PresencePenalty  *float64        `json:"presence_penalty"`
-	TopP             *float64        `json:"top_p"`
-	ResponseFormat   *ResponseFormat `json:"response_format"`
-	Tools            []api.Tool      `json:"tools"`
-	Reasoning        *Reasoning      `json:"reasoning,omitempty"`
-	ReasoningEffort  *string         `json:"reasoning_effort,omitempty"`
-	Logprobs         *bool           `json:"logprobs"`
-	TopLogprobs      int             `json:"top_logprobs"`
-	DebugRenderOnly  bool            `json:"_debug_render_only"`
+	Think               *api.ThinkValue `json:"think,omitempty"`
+	Format              json.RawMessage `json:"format,omitempty"`
+	Options             map[string]any  `json:"options,omitempty"`
+	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"`
+	Model               string          `json:"model"`
+	Messages            []Message       `json:"messages"`
+	Stream              bool            `json:"stream"`
+	StreamOptions       *StreamOptions  `json:"stream_options"`
+	MaxTokens           *int            `json:"max_tokens"`
+	Seed                *int            `json:"seed"`
+	Stop                any             `json:"stop"`
+	Temperature         *float64        `json:"temperature"`
+	FrequencyPenalty    *float64        `json:"frequency_penalty"`
+	PresencePenalty     *float64        `json:"presence_penalty"`
+	TopP                *float64        `json:"top_p"`
+	ResponseFormat      *ResponseFormat `json:"response_format"`
+	Tools               []api.Tool      `json:"tools"`
+	Reasoning           *Reasoning      `json:"reasoning,omitempty"`
+	ReasoningEffort     *string         `json:"reasoning_effort,omitempty"`
+	Logprobs            *bool           `json:"logprobs"`
+	TopLogprobs         int             `json:"top_logprobs"`
+	DebugRenderOnly     bool            `json:"_debug_render_only"`
 	// Ollama extension: without it an OpenAI-API client cannot release a model.
 	KeepAlive *api.Duration `json:"keep_alive,omitempty"`
 }
@@ -168,20 +176,31 @@ type ChatCompletionChunk struct {
 
 // TODO (https://github.com/ollama/ollama/issues/5259): support []string, []int and [][]int
 type CompletionRequest struct {
-	Model            string         `json:"model"`
-	Prompt           string         `json:"prompt"`
-	FrequencyPenalty float32        `json:"frequency_penalty"`
-	MaxTokens        *int           `json:"max_tokens"`
-	PresencePenalty  float32        `json:"presence_penalty"`
-	Seed             *int           `json:"seed"`
-	Stop             any            `json:"stop"`
-	Stream           bool           `json:"stream"`
-	StreamOptions    *StreamOptions `json:"stream_options"`
-	Temperature      *float32       `json:"temperature"`
-	TopP             float32        `json:"top_p"`
-	Suffix           string         `json:"suffix"`
-	Logprobs         *int           `json:"logprobs"`
-	DebugRenderOnly  bool           `json:"_debug_render_only"`
+	Think            *api.ThinkValue `json:"think,omitempty"`
+	Format           json.RawMessage `json:"format,omitempty"`
+	System           string          `json:"system,omitempty"`
+	Template         string          `json:"template,omitempty"`
+	Context          []int           `json:"context,omitempty"`
+	Raw              bool            `json:"raw,omitempty"`
+	Images           []api.ImageData `json:"images,omitempty"`
+	ResponseFormat   *ResponseFormat `json:"response_format,omitempty"`
+	ReasoningEffort  *string         `json:"reasoning_effort,omitempty"`
+	Options          map[string]any  `json:"options,omitempty"`
+	KeepAlive        *api.Duration   `json:"keep_alive,omitempty"`
+	Model            string          `json:"model"`
+	Prompt           string          `json:"prompt"`
+	FrequencyPenalty float32         `json:"frequency_penalty"`
+	MaxTokens        *int            `json:"max_tokens"`
+	PresencePenalty  float32         `json:"presence_penalty"`
+	Seed             *int            `json:"seed"`
+	Stop             any             `json:"stop"`
+	Stream           bool            `json:"stream"`
+	StreamOptions    *StreamOptions  `json:"stream_options"`
+	Temperature      *float32        `json:"temperature"`
+	TopP             float32         `json:"top_p"`
+	Suffix           string          `json:"suffix"`
+	Logprobs         *int            `json:"logprobs"`
+	DebugRenderOnly  bool            `json:"_debug_render_only"`
 }
 
 type Completion struct {
@@ -337,7 +356,7 @@ func ToChatCompletion(id string, r api.ChatResponse) ChatCompletion {
 		SystemFingerprint: "fp_ollama",
 		Choices: []Choice{{
 			Index:   0,
-			Message: Message{Role: r.Message.Role, Content: r.Message.Content, ToolCalls: toolCalls, Reasoning: r.Message.Thinking},
+			Message: Message{Role: r.Message.Role, Content: r.Message.Content, ToolCalls: toolCalls, Reasoning: r.Message.Thinking, ReasoningContent: r.Message.Thinking},
 			FinishReason: func(reason string) *string {
 				if reason == "stop" && len(toolCalls) > 0 {
 					reason = "tool_calls"
@@ -387,7 +406,7 @@ func toChunk(id string, r api.ChatResponse, includeRole bool) ChatCompletionChun
 		SystemFingerprint: "fp_ollama",
 		Choices: []ChunkChoice{{
 			Index:    0,
-			Delta:    Delta{Role: role, Content: content, ToolCalls: toolCalls, Reasoning: r.Message.Thinking},
+			Delta:    Delta{Role: role, Content: content, ToolCalls: toolCalls, Reasoning: r.Message.Thinking, ReasoningContent: r.Message.Thinking},
 			Logprobs: logprobs,
 		}},
 	}
@@ -618,8 +637,20 @@ func ThinkingFromReasoningEffort(effort string, thinking ...*model.Thinking) (*a
 // FromChatRequest converts a ChatCompletionRequest to api.ChatRequest.
 // An optional thinking descriptor preserves model-defined effort names for rendering.
 func FromChatRequest(r ChatCompletionRequest, thinking ...*model.Thinking) (*api.ChatRequest, error) {
+	if r.MaxCompletionTokens != nil {
+		r.MaxTokens = r.MaxCompletionTokens
+	}
 	var messages []api.Message
 	for _, msg := range r.Messages {
+		if msg.Reasoning == "" {
+			msg.Reasoning = msg.Thinking
+		}
+		if msg.Reasoning == "" {
+			msg.Reasoning = msg.ReasoningContent
+		}
+		if msg.ToolName != "" {
+			msg.Name = msg.ToolName
+		}
 		toolName := ""
 		if strings.ToLower(msg.Role) == "tool" {
 			toolName = msg.Name
@@ -793,16 +824,26 @@ func FromChatRequest(r ChatCompletionRequest, thinking ...*model.Thinking) (*api
 		effort = *r.ReasoningEffort
 	}
 
-	think, err := ThinkingFromReasoningEffort(effort, thinking...)
-	if err != nil {
-		return nil, err
+	think := r.Think
+	if think == nil {
+		var err error
+		think, err = ThinkingFromReasoningEffort(effort, thinking...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
+	if len(r.Format) > 0 {
+		format = r.Format
+	}
+	if r.Think != nil {
+		think = r.Think
+	}
 	return &api.ChatRequest{
 		Model:           r.Model,
 		Messages:        messages,
 		Format:          format,
-		Options:         options,
+		Options:         mergeNativeOptions(options, r.Options),
 		Stream:          &r.Stream,
 		Tools:           r.Tools,
 		Think:           think,
@@ -888,7 +929,27 @@ func FromCompleteRequest(r CompletionRequest) (api.GenerateRequest, error) {
 			if str, ok := s.(string); ok {
 				stops = append(stops, str)
 			} else {
-				return api.GenerateRequest{}, fmt.Errorf("invalid type for 'stop' field: %T", s)
+				format := r.Format
+				if len(format) == 0 && r.ResponseFormat != nil {
+					switch r.ResponseFormat.Type {
+					case "json_object":
+						format = json.RawMessage(`"json"`)
+					case "json_schema":
+						if r.ResponseFormat.JsonSchema != nil {
+							format = r.ResponseFormat.JsonSchema.Schema
+						}
+					}
+				}
+				think := r.Think
+				if think == nil && r.ReasoningEffort != nil {
+					var err error
+					think, err = ThinkingFromReasoningEffort(*r.ReasoningEffort)
+					if err != nil {
+						return api.GenerateRequest{}, err
+					}
+				}
+				return api.GenerateRequest{
+					Think: think, Format: format, System: r.System, Template: r.Template, Context: r.Context, Raw: r.Raw, Images: r.Images}, fmt.Errorf("invalid type for 'stop' field: %T", s)
 			}
 		}
 		options["stop"] = stops
@@ -925,10 +986,31 @@ func FromCompleteRequest(r CompletionRequest) (api.GenerateRequest, error) {
 		topLogprobs = *r.Logprobs
 	}
 
+	format := r.Format
+	if len(format) == 0 && r.ResponseFormat != nil {
+		switch r.ResponseFormat.Type {
+		case "json_object":
+			format = json.RawMessage(`"json"`)
+		case "json_schema":
+			if r.ResponseFormat.JsonSchema != nil {
+				format = r.ResponseFormat.JsonSchema.Schema
+			}
+		}
+	}
+	think := r.Think
+	if think == nil && r.ReasoningEffort != nil {
+		var err error
+		think, err = ThinkingFromReasoningEffort(*r.ReasoningEffort)
+		if err != nil {
+			return api.GenerateRequest{}, err
+		}
+	}
 	return api.GenerateRequest{
+		Think: think, Format: format, System: r.System, Template: r.Template, Context: r.Context, Raw: r.Raw, Images: r.Images,
+		KeepAlive:       r.KeepAlive,
 		Model:           r.Model,
 		Prompt:          r.Prompt,
-		Options:         options,
+		Options:         mergeNativeOptions(options, r.Options),
 		Stream:          &r.Stream,
 		Suffix:          r.Suffix,
 		Logprobs:        logprobs,
@@ -976,4 +1058,12 @@ func FromTranscriptionRequest(r TranscriptionRequest) (*api.ChatRequest, error) 
 			"temperature": 0,
 		},
 	}, nil
+}
+
+// Explicit Ollama options override mapped OpenAI sampling parameters.
+func mergeNativeOptions(mapped, native map[string]any) map[string]any {
+	for k, v := range native {
+		mapped[k] = v
+	}
+	return mapped
 }

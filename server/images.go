@@ -222,6 +222,9 @@ func (m *Model) ggufCapabilities(capabilities []model.Capability, source templat
 		// Otherwise, assume the model supports completion.
 		capabilities = appendCapability(capabilities, model.CapabilityCompletion)
 	}
+	if supportsRerank(m) {
+		capabilities = appendCapability(capabilities, model.CapabilityRerank)
+	}
 	if m.metadata.Valid("vision.block_count") {
 		capabilities = appendCapability(capabilities, model.CapabilityVision)
 	}
@@ -575,6 +578,7 @@ func (m *Model) CheckCapabilities(want ...model.Capability) error {
 		model.CapabilityThinking:   errCapabilityThinking,
 		model.CapabilityImage:      errCapabilityImage,
 		model.CapabilityDecision:   errors.New("decision"),
+		model.CapabilityRerank:     errors.New("rerank"),
 	}
 
 	for _, cap := range want {

@@ -98,11 +98,12 @@ var useClient2 = experimentEnabled("client2")
 var mode string = gin.DebugMode
 
 type Server struct {
-	addr          net.Addr
-	sched         *Scheduler
-	defaultNumCtx int
-	requestLogger *inferenceRequestLogger
-	modelCaches   *modelCaches
+	addr           net.Addr
+	sched          *Scheduler
+	defaultNumCtx  int
+	requestLogger  *inferenceRequestLogger
+	modelCaches    *modelCaches
+	gatewayMetrics *gatewayTracker
 }
 
 func init() {
@@ -317,6 +318,8 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	defer s.beginInference(c, req.Model)()
 
 	if len(body.Think) > 0 {
 		if err := json.Unmarshal(body.Think, &req.Think); err != nil {
@@ -786,6 +789,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 				Logprobs: toAPILogprobs(cr.Logprobs),
 			}
 
+			s.observeInference(c, cr.Content, cr.PromptEvalCount, cr.EvalCount, cr.PromptEvalDuration, cr.EvalDuration)
 			if builtinParser != nil {
 				content, thinking, toolCalls, err := builtinParser.Add(cr.Content, cr.Done)
 				if err != nil {
@@ -2249,6 +2253,9 @@ func allowedHostsMiddleware(addr net.Addr) gin.HandlerFunc {
 }
 
 func (s *Server) GenerateRoutes() (http.Handler, error) {
+	if s.gatewayMetrics == nil {
+		s.gatewayMetrics = newGatewayTracker()
+	}
 	codexDesktopProxy, err := newCodexDesktopProxy()
 	if err != nil {
 		return nil, err
@@ -2257,7 +2264,9 @@ func (s *Server) GenerateRoutes() (http.Handler, error) {
 	corsConfig := cors.DefaultConfig()
 	corsConfig.AllowWildcard = true
 	corsConfig.AllowBrowserExtensions = true
+	corsConfig.ExposeHeaders = []string{"X-Task-Id"}
 	corsConfig.AllowHeaders = []string{
+		"X-Task-Id",
 		"Authorization",
 		"Content-Type",
 		"User-Agent",
@@ -2284,10 +2293,14 @@ func (s *Server) GenerateRoutes() (http.Handler, error) {
 	r := gin.Default()
 	r.HandleMethodNotAllowed = true
 	r.Use(
-		cors.New(corsConfig),
+		taskIDMiddleware(), cors.New(corsConfig),
 		allowedHostsMiddleware(s.addr),
 	)
 
+	r.GET("/metrics", func(c *gin.Context) { c.JSON(http.StatusOK, s.gatewayMetrics.snapshot()) })
+	for _, path := range []string{"/v1/rerank", "/rerank", "/api/rerank"} {
+		r.POST(path, s.RerankHandler)
+	}
 	// General
 	r.HEAD("/", func(c *gin.Context) { c.String(http.StatusOK, "Ollama is running") })
 	r.GET("/", func(c *gin.Context) { c.String(http.StatusOK, "Ollama is running") })
@@ -2431,6 +2444,7 @@ func Serve(ln net.Listener) error {
 	sched := InitScheduler(schedCtx)
 	s.sched = sched
 	s.modelCaches.Start(ctx)
+	go registerModelHub(ctx)
 
 	slog.Info(fmt.Sprintf("Listening on %s (version %s)", ln.Addr(), version.Version))
 	srvr := &http.Server{
@@ -2445,12 +2459,33 @@ func Serve(ln net.Listener) error {
 		Handler: nil,
 	}
 
+	// Optional compatibility listener shares the exact same router and scheduler.
+	var compatServer *http.Server
+	if address := strings.TrimSpace(os.Getenv("OLLAMA_COMPAT_LISTEN")); address != "" {
+		compatListener, err := net.Listen("tcp", address)
+		if err != nil {
+			return fmt.Errorf("compatibility listener: %w", err)
+		}
+		compatServer = &http.Server{Handler: h}
+		defer compatServer.Close()
+		go func() {
+			if err := compatServer.Serve(compatListener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("compatibility listener failed", "error", err)
+				srvr.Close()
+				done()
+			}
+		}()
+	}
+
 	// listen for a ctrl+c and stop any loaded llm
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-signals
 		srvr.Close()
+		if compatServer != nil {
+			compatServer.Close()
+		}
 		schedDone()
 		sched.unloadAllRunners()
 		done()
@@ -2925,6 +2960,8 @@ func (s *Server) ChatHandler(c *gin.Context) {
 		return
 	}
 
+	defer s.beginInference(c, req.Model)()
+
 	if len(body.Think) > 0 {
 		if err := json.Unmarshal(body.Think, &req.Think); err != nil {
 			err = s.thinkingInputError(c.Request.Context(), req.Model, err)
@@ -3279,6 +3316,7 @@ func (s *Server) ChatHandler(c *gin.Context) {
 				Logprobs: toAPILogprobs(r.Logprobs),
 			}
 
+			s.observeInference(c, r.Content, r.PromptEvalCount, r.EvalCount, r.PromptEvalDuration, r.EvalDuration)
 			if r.Done {
 				res.DoneReason = r.DoneReason.String()
 				res.TotalDuration = time.Since(checkpointStart)
@@ -3442,6 +3480,7 @@ func (s *Server) handleNativeChat(c *gin.Context, req api.ChatRequest, m *Model,
 				Logprobs: toAPILogprobs(r.Logprobs),
 			}
 
+			s.observeInference(c, r.Message.Content+r.Message.Thinking, r.PromptEvalCount, r.EvalCount, r.PromptEvalDuration, r.EvalDuration)
 			if res.Message.Role == "" {
 				res.Message.Role = "assistant"
 			}

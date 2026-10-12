@@ -183,6 +183,7 @@ type llamaServerLaunchConfig struct {
 	numParallel          int
 	kvCacheType          string
 	embedding            bool
+	reranking            bool
 	config               LlamaServerConfig
 	gpus                 []ml.DeviceInfo
 	gpuLibs              []string
@@ -401,6 +402,9 @@ func startLlamaServer(launch llamaServerLaunchConfig, out io.Writer) (cmd *exec.
 	params = appendFlashAttentionArgs(params, launch.gpus)
 
 	params = appendBatchArgs(params, launch.opts, launch.embedding, launch.numParallel)
+	if launch.reranking {
+		params = append(params, "--reranking")
+	}
 
 	// GPU layer offloading — only pass if user explicitly set it (non-default).
 	// Default behavior: let llama-server auto-detect via -ngl auto.
@@ -862,7 +866,7 @@ func NewLlamaServerRunner(
 ) (LlamaServer, error) {
 	// Check if this is an embedding model
 	arch := f.KV().Architecture()
-	isEmbedding := f.KV().Has("pooling_type")
+	isEmbedding := f.KV().Has("pooling_type") || f.KV().HasRankHead()
 
 	// Older Ollama-format GGUFs store vision tensors (v.*, mm.*) inline in
 	// the main model file rather than in a separate projector layer. When
@@ -943,6 +947,7 @@ func NewLlamaServerRunner(
 		numParallel:  numParallel,
 		kvCacheType:  kvCacheType,
 		embedding:    isEmbedding,
+		reranking:    f.KV().HasRankHead(),
 		config:       config,
 		gpus:         slices.Clone(gpus),
 		gpuLibs:      slices.Clone(gpuLibs),

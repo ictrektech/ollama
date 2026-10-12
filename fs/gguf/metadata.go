@@ -244,3 +244,21 @@ func (m *Metadata) Values() map[string]any {
 	}
 	return values
 }
+
+// ClassifierOutputShape preserves tensor-table evidence for older rank GGUFs
+// which omitted pooling_type. An absent classifier returns an empty slice.
+func (m *Metadata) ClassifierOutputShape() []uint64 {
+	for _, t := range m.tensors {
+		if t.Name == "cls.output.weight" {
+			return slices.Clone(t.Shape)
+		}
+	}
+	return []uint64{}
+}
+func (m *Metadata) HasRankHead() bool {
+	if m.Uint("pooling_type") == 4 {
+		return true
+	}
+	shape := m.ClassifierOutputShape()
+	return (m.Architecture() == "bert" || m.Architecture() == "modernbert" || m.Architecture() == "xlmroberta") && (len(shape) == 1 || (len(shape) == 2 && shape[1] == 1))
+}

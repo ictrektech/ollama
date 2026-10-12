@@ -28,7 +28,8 @@ import (
 const ggufMetadataMaxArray = 4096
 
 type ggufMetadata struct {
-	OllamaVersion string `json:"ollama_version,omitempty"`
+	OllamaVersion         string   `json:"ollama_version,omitempty"`
+	ClassifierOutputShape []uint64 `json:"classifier_output_shape"`
 
 	// Values keyed exactly as they appear in the file. Never omitempty: absent
 	// on load means the file is not ours, and an all-omitted file is still
@@ -116,7 +117,7 @@ func readGGUFMetadata(digest string) (ggufMetadata, error) {
 	if err != nil {
 		return ggufMetadata{}, err
 	}
-	if md, ok := loadGGUFMetadata(path); ok {
+	if md, ok := loadGGUFMetadata(path); ok && !(md.String("general.architecture") == "bert" && md.ClassifierOutputShape == nil) {
 		return md, nil
 	}
 
@@ -276,7 +277,7 @@ func scanGGUFMetadata(path string) (ggufMetadata, error) {
 		return ggufMetadata{}, err
 	}
 
-	md := ggufMetadata{KV: make(map[string]any)}
+	md := ggufMetadata{KV: make(map[string]any), ClassifierOutputShape: metadata.ClassifierOutputShape()}
 	omitted := metadata.OmittedKeys()
 	for key, value := range metadata.Values() {
 		if slices.Contains(omitted, key) {
