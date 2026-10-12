@@ -25,7 +25,9 @@ build)
   # Retain the upstream targets, presets, dependency bundling and license generation.
   work=$(mktemp -d "${TMPDIR:-/tmp}/ictrek-ollama-build.XXXXXX")
   trap 'rm -rf "$work"' EXIT
-  sed "s|rocm/dev-almalinux-8:\${ROCMVERSION}-complete AS base-amd64|almalinux:8 AS base-amd64|" Dockerfile >"$work/Dockerfile"
+  sed -e "s|rocm/dev-almalinux-8:\${ROCMVERSION}-complete AS base-amd64|almalinux:8 AS base-amd64|" \
+      -e 's|RUN dnf install -y yum-utils ccache|RUN dnf install -y epel-release \&\& dnf install -y yum-utils ccache|' \
+      Dockerfile >"$work/Dockerfile"
   for target in "${targets[@]}"; do
     args=(--platform "linux/$arch" --file "$work/Dockerfile" --target "$target"
       --build-arg "GOFLAGS='-ldflags=-w -s -X=github.com/ollama/ollama/version.Version=${version#v} -X=github.com/ollama/ollama/server.mode=release'"

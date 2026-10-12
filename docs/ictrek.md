@@ -34,6 +34,10 @@ WeKnora 可选择通用 OpenAI 兼容 provider，Base URL 填 `http://<service>:
 - `/metrics` 保留旧 gateway 的 JSON 字段：`active_slots`、`total_slots`、`available_slots`、`slot_usage`、`active_by_model`、`phase`、`phase_by_model`、`model_metrics`、`requests`。统计覆盖本地原生 Chat/Generate、其 OpenAI 路径及 rerank。生成中 token/s 为估值（`estimated:true`），最终使用原生 token/duration；请求完成、出错或断连会移除活跃记录。排队及加载阶段仍显示为 prefill，槽位总数来自 `OLLAMA_NUM_PARALLEL`，默认 1。
 - `MODEL_HUB_REGISTER_URL` 为空时不注册；沿用 `MODEL_HUB_SERVICE_ID/NAME/BASE_URL/GATEWAY_URL/ROLE`、`MODEL_HUB_REGISTER_ATTEMPTS`、`MODEL_HUB_REGISTER_RETRY_INTERVAL` 和原 metadata 环境变量。默认 base/gateway URL 均为 `http://<hostname>:11434`；两个端口等价，可显式设置 gateway URL 为 `11535`。
 
+## Model Hub 预加载
+
+沿用 `OLLAMA_PRELOAD_MODEL/MODELS`、`OLLAMA_PRELOAD_ENABLED`、`OLLAMA_PRELOAD_MODE`、`OLLAMA_READY_WAIT_SECONDS` 和 `OLLAMA_KEEP_ALIVE`。Go 启动生命周期会按需拉取并预热模型，原子写入 `MODELS_BASE_DIR/shared/tasks/preload-*.json` 的下载进度、速度、ETA 和状态。`rerank` mode 使用标准 `/v1/rerank`；Compose 直接运行 `ollama serve`，无需 Python 或 uvicorn。拉取/预热在后台进行，服务继续可用。
+
 ## 统一 CI 与版本
 
 ```sh
@@ -43,6 +47,8 @@ bash scripts/ictrek_release.sh build v0.40.3_20261012
 # 创建并推送版本 tag，触发同样验证，通过后发布 SWR、飞书及 GitHub Release：
 bash scripts/ictrek_release.sh release v0.40.3_20261012
 bash scripts/ictrek_release.sh status
+# 未公开 Release、CI 已失败/取消时，将同一个日期 tag 安全重试到已推送的新提交：
+bash scripts/ictrek_release.sh retry v0.40.3_20261012
 ```
 
 自有流程 `.github/workflows/ictrek-release.yaml` 使用 GitHub-hosted amd64/arm64 runner；不依赖上游专用 runner、Docker Hub、macOS/Windows 签名。复用官方 Dockerfile 的 CPU、CUDA 12/13、JetPack 5/6 构建目标和 CMake presets，CPU/CUDA 的 amd64 基础开发镜像换为 AlmaLinux 8，避免加载无关 ROCm 工具链。
