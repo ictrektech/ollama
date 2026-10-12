@@ -55,6 +55,8 @@ bash scripts/ictrek_release.sh retry v0.40.3_20261012
 
 产物：amd64/arm64 的 CPU+CUDA 主包，以及 JetPack 5/6 附加包、`sha256sum.txt`。版本写入二进制、OCI label、Release tag/title，格式为 `vX.Y.Z_YYYYMMDD`。正式 Release 保留完整 tag，不使用官方候选版本归并逻辑。自有 tag 不触发官方完整跨平台 release 或官方 Docker latest 流程。
 
+发布顺序：源码编译 → 压缩包作为 CI artifact → amd64/arm64 真实模型验证 → 从同一压缩包解压组装镜像 → 双端口容器检查 → SWR 推送与飞书读回 → 公开 GitHub Release。镜像不会再次编译 Ollama；无需先公开 Release 再下载。任何前置步骤失败，GitHub Release 都不会公开。
+
 ## 镜像与飞书
 
 `scripts/build_image.sh` 已迁入此 fork，从经校验的 fork Release 包组装纯 Go 镜像，不包含 Python gateway，不下载官方二进制。脚本直接在构建机器执行；同步由调用者负责，脚本不运行 SSH、rsync 或 Git。
