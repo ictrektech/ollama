@@ -26,7 +26,7 @@ build)
   work=$(mktemp -d "${TMPDIR:-/tmp}/ictrek-ollama-build.XXXXXX")
   trap 'rm -rf "$work"' EXIT
   sed -e "s|rocm/dev-almalinux-8:\${ROCMVERSION}-complete AS base-amd64|almalinux:8 AS base-amd64|" \
-      -e 's|RUN dnf install -y yum-utils ccache|RUN dnf install -y epel-release \&\& dnf install -y yum-utils ccache|' \
+      -e 's|RUN dnf install -y yum-utils ccache|RUN dnf install -y epel-release \&\& dnf install -y git yum-utils ccache|' \
       Dockerfile >"$work/Dockerfile"
   for target in "${targets[@]}"; do
     args=(--platform "linux/$arch" --file "$work/Dockerfile" --target "$target"
