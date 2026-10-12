@@ -51,6 +51,24 @@ actual=$("$work/payload/bin/ollama" --version 2>&1)
 cp "$REPO_ROOT/docker/Dockerfile.runtime" "$work/Dockerfile"
 docker buildx build --platform "linux/$arch" --load --provenance=false --sbom=false --build-arg "BASE_IMAGE=$base" \
   --label "org.opencontainers.image.version=${version#v}" -t "$IMAGE_URI" "$work"
+actual_arch=$(docker image inspect --format '{{.Architecture}}' "$IMAGE_URI")
+[[ "$actual_arch" == "$arch" ]] || { err 'Image architecture mismatch';exit 1; }
+# Both listeners must expose the same API before any publication/table update.
+container="ictrek-ollama-verify-$$"
+trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT
+docker run -d --name "$container" -e NVIDIA_VISIBLE_DEVICES=void "$IMAGE_URI" >/dev/null
+for attempt in {1..60}; do
+  if docker exec "$container" curl -fsS http://127.0.0.1:11434/api/version >"$work/version11434" \
+    && docker exec "$container" curl -fsS http://127.0.0.1:11535/api/version >"$work/version11535";then break;fi
+  sleep 1
+done
+cmp "$work/version11434" "$work/version11535"
+python3 - "$work/version11434" "${version#v}" <<'PYVERSION'
+import json,sys
+assert json.load(open(sys.argv[1]))["version"]==sys.argv[2], "Container version mismatch"
+PYVERSION
+docker exec "$container" curl -fsS http://127.0.0.1:11535/metrics >/dev/null
+docker rm -f "$container" >/dev/null
 if [[ "$publish" == 0 ]];then exit 0;fi
 docker push "$IMAGE_URI"
 docker manifest inspect "$IMAGE_URI" >/dev/null

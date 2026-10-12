@@ -23,7 +23,7 @@ curl http://localhost:11434/v1/rerank -H 'Content-Type: application/json' -d '{
 
 支持 rank-pooling GGUF 交叉编码器及 Qwen3-Reranker；旧 BERT GGUF 的单输出分类头也会被识别。Qwen3 示例：`ollama pull AuditAid/Qwen3_Reranker:0.6B_Q8`。BGE 的分类头 logits 经 sigmoid 转为 0..1 分数，Qwen3 使用训练时 prompt 的 yes/no softmax 概率。普通 embedding 模型不作为 reranker。长输入超过后端上限会返回错误，不悄悄截断或用 embedding 第一维代替分数。
 
-可选 Ollama 扩展：`options`、`keep_alive`；Qwen3 可用 `instruction` 改变检索任务说明。`options.num_ctx`、`num_gpu` 等按原生请求处理。
+可选 Ollama 扩展：`options`、`keep_alive`；以 LM logits 评分的 Qwen3 版本可用 `instruction` 改变检索任务说明。`options.num_ctx`、`num_gpu` 等按原生请求处理。
 
 WeKnora 可选择通用 OpenAI 兼容 provider，Base URL 填 `http://<service>:11434/v1` 或 `11535/v1`，rerank score scale 选 `probability`。无需 Ollama embedding 适配器。WeKnora 已有的 `provider: ollama` 和 local rerank 行会转为同一通用协议，旧 `ollama_rerank_template` 被忽略。
 
@@ -70,6 +70,6 @@ bash scripts/build_image.sh --target thor --version v0.40.3_20261012 --package-d
 
 镜像仓库和组件列继续为 `swr.cn-southwest-2.myhuaweicloud.com/ictrek/ollama_server` / `ollama_server`。VOS 镜像 tag 保持 `amd_YYYYMMDD`、`arm_YYYYMMDD`、`l4t_YYYYMMDD`、`thor_YYYYMMDD`；二进制版本保留 `X.Y.Z_YYYYMMDD`。同平台同日期重发会覆盖该 tag。
 
-`--no-publish` 只构建；`--dry-run` 只显示计划；`--sheet-title` 可重复指定。发布流程为 build → push → manifest 检查 → 写飞书 → 精确读回。固定 spreadsheet ID 为 `Htotsn3oahO1zxt73YMcaB1zn8e`；认证来自 `FEISHU_APP_ID/SECRET` 或构建主机 `~/.feishu.json`。CI 需 `SWR_USERNAME`、`SWR_PASSWORD`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 四个 secrets。
+`--no-publish` 只构建；`--dry-run` 只显示计划；`--sheet-title` 可重复指定。发布流程为 build → 双端口容器检查 → push → manifest 检查 → 写飞书 → 精确读回。固定 spreadsheet ID 为 `Htotsn3oahO1zxt73YMcaB1zn8e`；认证来自 `FEISHU_APP_ID/SECRET` 或构建主机 `~/.feishu.json`。CI 需 `SWR_USERNAME`、`SWR_PASSWORD`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 四个 secrets。
 
 真实模型验证入口：`python3 scripts/verify_gateway.py --binary /path/to/bin/ollama --work-dir /path/to/isolated-test`。它使用独立模型目录和 19134/19135 端口，测试 BGE/Qwen3 rerank、原生/OpenAI chat、completion、embedding、SSE 取消和共享 metrics；不会重启已有服务。GPU 驱动和加速行为仍需在对应硬件验证。
