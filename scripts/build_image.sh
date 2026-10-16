@@ -71,7 +71,7 @@ docker exec "$container" curl -fsS http://127.0.0.1:11535/metrics >/dev/null
 docker rm -f "$container" >/dev/null
 if [[ "$publish" == 0 ]];then exit 0;fi
 docker push "$IMAGE_URI"
-docker manifest inspect "$IMAGE_URI" >/dev/null
+docker buildx imagetools inspect "$IMAGE_URI" >/dev/null
 if [[ ${#sheets[@]} == 0 ]];then log 'No default sheet for this target; use --sheet-title to record it';exit 0;fi
 if [[ -n "${FEISHU_APP_ID:-}" && -n "${FEISHU_APP_SECRET:-}" ]];then :;else
   FEISHU_APP_ID=$(read_feishu_field feishu_app_id)
