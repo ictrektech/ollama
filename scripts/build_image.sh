@@ -46,8 +46,8 @@ mkdir -p "$work/payload"
 (cd "$packages" && sha256sum -c sha256sum.txt)
 zstd -dc "$packages/ollama-linux-$arch.tar.zst" | tar -xf - -C "$work/payload"
 if [[ -n "$overlay" ]];then zstd -dc "$packages/ollama-linux-arm64-$overlay.tar.zst" | tar -xf - -C "$work/payload";fi
-actual=$("$work/payload/bin/ollama" --version 2>&1)
-[[ "$actual" == *"${version#v}"* ]] || { err 'Binary version does not match requested version';exit 1; }
+# Validate the binary inside the target image below: a compatible runtime can
+# be newer than the build host's glibc, so executing it on that host is invalid.
 cp "$REPO_ROOT/docker/Dockerfile.runtime" "$work/Dockerfile"
 docker buildx build --platform "linux/$arch" --load --provenance=false --sbom=false --build-arg "BASE_IMAGE=$base" \
   --label "org.opencontainers.image.version=${version#v}" -t "$IMAGE_URI" "$work"
