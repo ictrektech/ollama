@@ -83,3 +83,9 @@ bash scripts/build_image.sh --target thor --version v0.40.3_20261012 --package-d
 `--no-publish` 只构建；`--dry-run` 只显示计划；`--sheet-title` 可重复指定。发布流程为 build → 双端口容器检查 → push → manifest 检查 → 写飞书 → 精确读回。固定 spreadsheet ID 为 `Htotsn3oahO1zxt73YMcaB1zn8e`；认证来自 `FEISHU_APP_ID/SECRET` 或构建主机 `~/.feishu.json`。CI 需 `SWR_USERNAME`、`SWR_PASSWORD`、`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 四个 secrets。
 
 真实模型验证入口：`python3 scripts/verify_gateway.py --binary /path/to/bin/ollama --work-dir /path/to/isolated-test`。它使用独立模型目录和 19134/19135 端口，测试 BGE/Qwen3 rerank、Model Hub 默认 `qwen3.5:2b` QA、原生/OpenAI chat、completion、embedding、SSE 取消和共享 metrics；不会重启已有服务。GPU 驱动和加速行为仍需在对应硬件验证。
+
+### Scheduler stop confirmation
+
+`POST /api/scheduler/confirm-stopped` accepts `{"model":"<native model>","nonce":"<32 character challenge>"}` on both listeners. It refuses while native HTTP inference is active, requests unload of that model, then passes a probe through the native loading loop. A positive receipt requires that loading has finished, the model runner has been removed after process close, no load is queued, and no native process-close error was observed. The response echoes the model and nonce and sets `protocol_version: 1`, `stopped: true` and `native_exit_barrier: true` only when that barrier completes. A timeout returns an unconfirmed receipt; it never counts as stop evidence. A process-close failure blocks positive receipts until the service restarts.
+
+This lets the owning V-Scheduler recover interrupted requests without dropping an unknown computation merely because its lease expired. Existing inference and model-management APIs are unchanged.

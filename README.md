@@ -10,7 +10,7 @@ Start building with open models.
 
 ## ictrek fork
 
-This fork embeds the Ollama gateway, adds Cohere/vLLM-compatible reranking, and ships Linux CPU/CUDA/JetPack packages plus VOS service images. Both container ports `11434` and `11535` serve the same API. See [ictrek API, CI, and image release instructions](docs/ictrek.md).
+This fork embeds the Ollama gateway, adds Cohere/vLLM-compatible reranking, and ships Linux CPU/CUDA/JetPack packages plus VOS service images. Both container ports `11434` and `11535` serve the same API. The scheduler stop-confirmation endpoint checks the native load/process-exit barrier so interrupted managed requests can recover safely. See [ictrek API, CI, and image release instructions](docs/ictrek.md).
 
 ## Download
 

@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ollama/ollama/api"
@@ -59,11 +60,18 @@ type LlmRequest struct {
 	shift        *bool
 }
 
+type stoppedProbe struct {
+	key    string
+	result chan bool
+}
+
 type Scheduler struct {
-	pendingReqCh  chan *LlmRequest
-	finishedReqCh chan *LlmRequest
-	expiredCh     chan *runnerRef
-	unloadedCh    chan any
+	stoppedProbeCh   chan stoppedProbe
+	stopProofFailure atomic.Bool
+	pendingReqCh     chan *LlmRequest
+	finishedReqCh    chan *LlmRequest
+	expiredCh        chan *runnerRef
+	unloadedCh       chan any
 
 	// loadedMu protects loaded and activeLoading
 	loadedMu sync.Mutex
@@ -93,6 +101,7 @@ func InitScheduler(ctx context.Context) *Scheduler {
 	maxQueue := envconfig.MaxQueue()
 	sched := &Scheduler{
 		pendingReqCh:    make(chan *LlmRequest, maxQueue),
+		stoppedProbeCh:  make(chan stoppedProbe, 1),
 		finishedReqCh:   make(chan *LlmRequest, maxQueue),
 		expiredCh:       make(chan *runnerRef, maxQueue),
 		unloadedCh:      make(chan any, maxQueue),
@@ -240,6 +249,14 @@ func (s *Scheduler) processPending(ctx context.Context) {
 		case <-ctx.Done():
 			slog.Debug("shutting down scheduler pending loop")
 			return
+		case probe := <-s.stoppedProbeCh:
+			// This loop owns native loading. Reaching this point is a barrier
+			// after a cancelled load has closed and waited for its process.
+			s.loadedMu.Lock()
+			_, loaded := s.loaded[probe.key]
+			stopped := !s.stopProofFailure.Load() && s.activeLoading == nil && !loaded && len(s.pendingReqCh) == 0
+			s.loadedMu.Unlock()
+			probe.result <- stopped
 		case pending := <-s.pendingReqCh:
 			// Block other requests until we get this pending request running
 			pending.schedAttempts++
@@ -456,7 +473,9 @@ func (s *Scheduler) processCompleted(ctx context.Context) {
 				// do not delete the mismatched loaded runner, or wait for VRAM
 				// convergence.
 				slog.Debug("orphaned runner shutting down", "orphan", runner, "loaded", runnerToUnload)
-				runner.unload()
+				if err := runner.unload(); err != nil {
+					s.stopProofFailure.Store(true)
+				}
 				s.loadedMu.Unlock()
 				runner.refMu.Unlock()
 			} else {
@@ -466,7 +485,9 @@ func (s *Scheduler) processCompleted(ctx context.Context) {
 					runnersSnapshot = append(runnersSnapshot, r)
 				}
 				finished := s.waitForVRAMRecovery(runner, runnersSnapshot)
-				runner.unload()
+				if err := runner.unload(); err != nil {
+					s.stopProofFailure.Store(true)
+				}
 				delete(s.loaded, runner.modelKey)
 				s.loadedMu.Unlock()
 				slog.Debug("runner terminated and removed from list, blocking for VRAM recovery", "runner", runner)
@@ -640,7 +661,9 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 			if !requireFull {
 				// No other models loaded, yet we still don't fit, so report an error
 				slog.Info("model is too large for system memory", "requireFull", requireFull)
-				s.activeLoading.Close()
+				if err := s.activeLoading.Close(); err != nil {
+					s.stopProofFailure.Store(true)
+				}
 				s.activeLoading = nil
 				req.errCh <- err
 				return false
@@ -649,7 +672,9 @@ func (s *Scheduler) load(req *LlmRequest, systemInfo ml.SystemInfo, gpus []ml.De
 		}
 
 		slog.Info("Load failed", "model", req.model.ModelPath, "error", err)
-		s.activeLoading.Close()
+		if err := s.activeLoading.Close(); err != nil {
+			s.stopProofFailure.Store(true)
+		}
 		s.activeLoading = nil
 
 		s.loadedMu.Lock()
@@ -739,7 +764,9 @@ iGPUScan:
 		// Shouldn't happen, but safeguard against leaking a runner
 		slog.Warn("model was still loaded", "old_runner", oldRunner, "new_runner", runner)
 		oldRunner.refMu.Lock()
-		oldRunner.unload()
+		if err := oldRunner.unload(); err != nil {
+			s.stopProofFailure.Store(true)
+		}
 		oldRunner.refMu.Unlock()
 	}
 	s.activeLoading = nil
@@ -1388,18 +1415,20 @@ type runnerRef struct {
 }
 
 // The refMu must already be held when calling unload
-func (runner *runnerRef) unload() {
+func (runner *runnerRef) unload() error {
+	var stopErr error
 	if runner.expireTimer != nil {
 		runner.expireTimer.Stop()
 		runner.expireTimer = nil
 	}
 	if runner.llama != nil {
-		runner.llama.Close()
+		stopErr = runner.llama.Close()
 	}
 	runner.model = nil
 	runner.Options = nil
 	runner.gpus = nil
 	runner.contextShift = false
+	return stopErr
 }
 
 func (runner *runnerRef) needsReload(ctx context.Context, req *LlmRequest) bool {
@@ -1728,14 +1757,18 @@ func (s *Scheduler) unloadAllRunners() {
 
 	if s.activeLoading != nil {
 		slog.Debug("shutting down currently loading runner")
-		s.activeLoading.Close()
+		if err := s.activeLoading.Close(); err != nil {
+			s.stopProofFailure.Store(true)
+		}
 		s.activeLoading = nil
 	}
 
 	for model, runner := range s.loaded {
 		if runner.llama != nil {
 			slog.Debug("shutting down runner", "model", model)
-			runner.llama.Close()
+			if err := runner.llama.Close(); err != nil {
+				s.stopProofFailure.Store(true)
+			}
 		}
 	}
 }
@@ -1825,4 +1858,20 @@ func (s *Scheduler) loadedModels() []loadedModel {
 		models = append(models, lm)
 	}
 	return models
+}
+
+// confirmedStopped never substitutes an elapsed timeout for native stop evidence.
+func (s *Scheduler) confirmedStopped(ctx context.Context, model *Model) bool {
+	probe := stoppedProbe{key: schedulerModelKey(model), result: make(chan bool, 1)}
+	select {
+	case s.stoppedProbeCh <- probe:
+	case <-ctx.Done():
+		return false
+	}
+	select {
+	case stopped := <-probe.result:
+		return stopped
+	case <-ctx.Done():
+		return false
+	}
 }

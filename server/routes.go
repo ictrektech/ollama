@@ -2338,6 +2338,7 @@ func (s *Server) GenerateRoutes() (http.Handler, error) {
 
 	// Inference
 	r.GET("/api/ps", s.PsHandler)
+	r.POST("/api/scheduler/confirm-stopped", s.SchedulerConfirmStoppedHandler)
 	r.POST("/api/generate", s.withInferenceRequestLogging("/api/generate", s.GenerateHandler)...)
 	r.POST("/api/chat", s.withInferenceRequestLogging("/api/chat", s.ChatHandler)...)
 	r.POST("/api/embed", s.EmbedHandler)
