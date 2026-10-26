@@ -55,7 +55,7 @@ package)
     test -x "$root/lib/ollama/llama-server"
     test -f "$root/lib/ollama/cuda_v12/libggml-cuda.so"
     test -f "$root/lib/ollama/cuda_v13/libggml-cuda.so"
-    ./scripts/deduplicate_cuda_libs.sh "$root"
+    # Current upstream CMake publication already deduplicates CUDA payloads.
     tar -C "$root" --owner=0 --group=0 -cf - bin lib | zstd -T0 -19 -o "$output/ollama-linux-$arch.tar.zst"
   done
   for component in jetpack5 jetpack6; do

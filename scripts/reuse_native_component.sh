@@ -20,9 +20,15 @@ while IFS=$'\t' read -r run sha; do
   [[ "$conclusion" == success ]] || continue
   git fetch --quiet --depth=1 origin "$sha" || continue
   if ! git diff --quiet "$sha" HEAD -- Dockerfile LLAMA_CPP_VERSION llama/server llama/compat \
-      cmake CMakeLists.txt CMakePresets.json scripts/ictrek_build.sh; then
+      cmake CMakeLists.txt CMakePresets.json; then
     continue
   fi
+  # This script contains two independent operations. Package assembly changes
+  # do not alter a native component; retain helpers, build and common footer.
+  git show "$sha:scripts/ictrek_build.sh" >"$work/previous-build.sh" || continue
+  awk '/^package\)$/ {skip=1;next} skip && /^  ;;$/ {skip=0;next} !skip' "$work/previous-build.sh" >"$work/previous-native.sh"
+  awk '/^package\)$/ {skip=1;next} skip && /^  ;;$/ {skip=0;next} !skip' scripts/ictrek_build.sh >"$work/current-native.sh"
+  cmp -s "$work/previous-native.sh" "$work/current-native.sh" || continue
   mkdir -p "$work/$run"
   if gh run download "$run" --repo "$repo" --name "$arch-$component" --dir "$work/$run" \
     && [[ -s "$work/$run/component.tar" ]]; then

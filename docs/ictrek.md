@@ -55,7 +55,7 @@ bash scripts/ictrek_release.sh retry v0.40.3_20261012
 
 产物：amd64/arm64 的 CPU+CUDA 主包，以及 JetPack 5/6 附加包、`sha256sum.txt`。版本写入二进制、OCI label、Release tag/title，格式为 `vX.Y.Z_YYYYMMDD`。正式 Release 保留完整 tag，不使用官方候选版本归并逻辑。自有 tag 不触发官方完整跨平台 release 或官方 Docker latest 流程。
 
-模型的最低版本要求按日期后缀之前的基础版本比较，例如 `0.40.3_20261012` 满足 `0.30.0`，但不能满足 `0.40.4`。同版本候选重试时，仅在 Dockerfile、原生源码、版本和编译脚本完全一致且原任务成功的情况下复用 CUDA/JetPack 产物；Go/base 始终重新构建。
+模型的最低版本要求按日期后缀之前的基础版本比较，例如 `0.40.3_20261012` 满足 `0.30.0`，但不能满足 `0.40.4`。同版本候选重试时，仅在 Dockerfile、原生源码、版本及编译脚本的原生编译输入完全一致且原任务成功的情况下复用 CUDA/JetPack 产物；Go/base 始终重新构建。只改变 package 分支的组装逻辑不触发原生重编译；共享辅助函数、build 分支及公共收尾仍纳入一致性校验。0.40.11 的 CUDA 去重由上游 CMake 发布阶段完成，不再调用已删除的旧去重脚本。
 
 发布顺序：源码编译 → 压缩包作为 CI artifact → amd64/arm64 真实模型验证 → 从同一压缩包解压组装镜像 → 双端口容器检查 → SWR 推送与飞书读回 → 公开 GitHub Release。镜像不会再次编译 Ollama；无需先公开 Release 再下载。任何前置步骤失败，GitHub Release 都不会公开。
 
