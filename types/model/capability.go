@@ -13,13 +13,15 @@ const (
 	CapabilityAudio      = Capability("audio")
 	CapabilityDecision   = Capability("decision")
 	CapabilityRerank     = Capability("rerank")
+	CapabilitySpeech     = Capability("speech")
 )
 
 // IsValid reports whether c is recognized, such as "decision"; empty or unknown labels are invalid.
 func (c Capability) IsValid() bool {
 	switch c {
 	case CapabilityCompletion, CapabilityTools, CapabilityInsert, CapabilityVision,
-		CapabilityEmbedding, CapabilityThinking, CapabilityImage, CapabilityAudio, CapabilityDecision, CapabilityRerank:
+		CapabilityEmbedding, CapabilityThinking, CapabilityImage, CapabilityAudio, CapabilityDecision,
+		CapabilityRerank, CapabilitySpeech:
 		return true
 	default:
 		return false

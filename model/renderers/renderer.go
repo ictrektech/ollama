@@ -71,7 +71,7 @@ func rendererForName(name string) Renderer {
 	case "qwen3.5", "tev1":
 		renderer := &Qwen35Renderer{isThinking: true, emitEmptyThinkOnNoThink: true, useImgTags: RenderImgTags}
 		return renderer
-	case "qwen3.8":
+	case "qwen3.8", "d3":
 		return newQwen38Renderer()
 	case "ornith":
 		return newOrnithRenderer()
@@ -99,14 +99,20 @@ func rendererForName(name string) Renderer {
 		return &Nemotron3NanoRenderer{}
 	case "nemotron-3.5-nano":
 		return &Nemotron3NanoRenderer{v35: true}
+	case "nemotron-3.5-super":
+		return &Nemotron3NanoRenderer{v35: true, imageLabels: true}
 	case "gemma4", "gemma4-small":
 		return &Gemma4Renderer{useImgTags: RenderImgTags}
 	case "gemma4-large":
 		return &Gemma4Renderer{useImgTags: RenderImgTags, emptyBlockOnNothink: true}
+	case "gemma4-nemotron":
+		return &Gemma4Renderer{useImgTags: RenderImgTags, contentBeforeToolCalls: true}
 	case "functiongemma":
 		return &FunctionGemmaRenderer{}
 	case "glm-4.7":
 		return &GLM47Renderer{}
+	case "flint":
+		return &FlintRenderer{}
 	case "glm-ocr":
 		return &GlmOcrRenderer{useImgTags: RenderImgTags}
 	case "lfm2":

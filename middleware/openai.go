@@ -515,6 +515,19 @@ func (w *ResponsesWriter) writeEvent(eventType string, data any) error {
 }
 
 func (w *ResponsesWriter) writeResponse(data []byte) (int, error) {
+	if w.stream {
+		if message, ok := streamErrorMessage(data); ok {
+			w.ResponseWriter.Header().Set("Content-Type", "text/event-stream")
+			for _, event := range w.converter.ResponseFailed(map[string]any{
+				"error": openai.ResponsesError{Code: "server_error", Message: message},
+			}) {
+				if err := w.writeEvent(event.Event, event.Data); err != nil {
+					return 0, err
+				}
+			}
+			return len(data), nil
+		}
+	}
 	var chatResponse api.ChatResponse
 	if err := json.Unmarshal(data, &chatResponse); err != nil {
 		return 0, err
@@ -540,8 +553,29 @@ func (w *ResponsesWriter) writeResponse(data []byte) (int, error) {
 	return len(data), json.NewEncoder(w.ResponseWriter).Encode(response)
 }
 
+// Once HTTP 200 is committed, native generation failures arrive in-band.
+// Presence of the error field matters even when its message is empty.
+func streamErrorMessage(data []byte) (string, bool) {
+	var envelope struct {
+		Error *string `json:"error"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil || envelope.Error == nil {
+		return "", false
+	}
+	return *envelope.Error, true
+}
+
 func (w *ResponsesWriter) Write(data []byte) (int, error) {
 	code := w.ResponseWriter.Status()
+	// Cloud /v1/responses replies bypass this native response writer.
+	if code == http.StatusUnauthorized {
+		var authorizationError api.AuthorizationError
+		if err := json.Unmarshal(data, &authorizationError); err != nil {
+			authorizationError.SigninURL = ""
+		}
+		w.ResponseWriter.Header().Set("Content-Type", "application/json")
+		return len(data), json.NewEncoder(w.ResponseWriter).Encode(openai.NewResponsesAuthenticationError(authorizationError.SigninURL))
+	}
 	if code != http.StatusOK {
 		return w.writeError(data)
 	}
@@ -581,6 +615,11 @@ type WebSearchResponsesWriter struct {
 	finalOutputStreamed bool
 }
 
+// SetThinking keeps web-search follow-ups aligned with the resolved chat request.
+func (w *WebSearchResponsesWriter) SetThinking(think *api.ThinkValue) {
+	w.chat.Think = think
+}
+
 func (w *WebSearchResponsesWriter) WriteHeader(code int) {
 	w.status = code
 }
@@ -605,6 +644,13 @@ func (w *WebSearchResponsesWriter) Write(data []byte) (int, error) {
 	}
 	if w.Status() != http.StatusOK {
 		return len(data), w.writeWebSearchError(decodeWebSearchResponseError(w.Status(), data), api.Metrics{})
+	}
+	if w.inner.stream {
+		if _, ok := streamErrorMessage(data); ok {
+			w.done = true
+			w.buffered = nil
+			return w.inner.writeResponse(data)
+		}
 	}
 
 	var response api.ChatResponse
@@ -1110,31 +1156,36 @@ func (w *WebSearchResponsesWriter) writeWebSearchError(err error, usage api.Metr
 	message := err.Error()
 	status := http.StatusBadGateway
 	errorCode := "api_error"
+	signinURL := ""
 	var authorizationError api.AuthorizationError
 	var statusError api.StatusError
 	switch {
 	case errors.As(err, &authorizationError):
 		status = authorizationError.StatusCode
 		errorCode = "authentication_error"
-		if authorizationError.SigninURL != "" {
-			message += "; sign in at " + authorizationError.SigninURL
-		}
+		message = openai.ResponsesSignInMessage
+		signinURL = authorizationError.SigninURL
 	case errors.As(err, &statusError):
 		status = statusError.StatusCode
 		if status == http.StatusTooManyRequests {
 			errorCode = "rate_limit_exceeded"
+		} else if status == http.StatusUnauthorized {
+			errorCode = "authentication_error"
+			message = openai.ResponsesSignInMessage
 		}
 	}
 	if !w.inner.stream {
 		w.ResponseWriter.Header().Set("Content-Type", "application/json")
 		w.ResponseWriter.WriteHeader(status)
 		w.done = true
+		if errorCode == "authentication_error" {
+			return json.NewEncoder(w.ResponseWriter).Encode(openai.NewResponsesAuthenticationError(signinURL))
+		}
 		return json.NewEncoder(w.ResponseWriter).Encode(openai.NewError(status, message))
 	}
 	w.ResponseWriter.Header().Set("Content-Type", "text/event-stream")
 	response := map[string]any{
-		"id": w.inner.responseID, "object": "response", "status": "failed", "model": w.req.Model,
-		"output": []any{}, "error": map[string]any{"code": errorCode, "message": message},
+		"error": map[string]any{"code": errorCode, "message": message},
 		"usage": map[string]any{
 			"input_tokens":         usage.PromptEvalCount,
 			"output_tokens":        usage.EvalCount,
@@ -1142,15 +1193,13 @@ func (w *WebSearchResponsesWriter) writeWebSearchError(err error, usage api.Metr
 			"input_tokens_details": map[string]any{"cached_tokens": optionalIntValue(usage.PromptEvalCachedCount)},
 		},
 	}
-	initialEvents := w.inner.converter.Process(api.ChatResponse{})
-	for _, event := range initialEvents {
+	if signinURL != "" {
+		response["signin_url"] = signinURL
+	}
+	for _, event := range w.inner.converter.ResponseFailed(response) {
 		if err := w.inner.writeEvent(event.Event, event.Data); err != nil {
 			return err
 		}
-	}
-	event := w.inner.converter.ResponseFailed(response)
-	if err := w.inner.writeEvent(event.Event, event.Data); err != nil {
-		return err
 	}
 	w.done = true
 	return nil
@@ -1195,6 +1244,12 @@ func ResponsesMiddleware(thinkingLookup ...ThinkingLookup) gin.HandlerFunc {
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, openai.NewError(http.StatusBadRequest, err.Error()))
 			return
+		}
+
+		// Clients can retain reasoning effort when switching to a non-thinking
+		// model. Ignore that effort, but preserve explicit Ollama think overrides.
+		if req.Think == nil {
+			c.Set("relax_thinking", true)
 		}
 
 		// Check if client requested streaming (defaults to false)
