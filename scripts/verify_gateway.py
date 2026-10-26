@@ -54,7 +54,7 @@ def main():
                 time.sleep(1)
         else:
             raise RuntimeError("server startup timed out")
-        models = ["qllama/bge-reranker-v2-m3:q8_0", "AuditAid/Qwen3_Reranker:0.6B_Q8", "qwen3:0.6b", "all-minilm", "qwen3.5:2b"]
+        models = ["qllama/bge-reranker-v2-m3:q8_0", "AuditAid/Qwen3_Reranker:0.6B_Q8", "qwen3:0.6b", "all-minilm", "qwen3.5:2b", "tev1:0.8b"]
         for model in models:
             print(f"pull {model}", flush=True)
             api("/api/pull", {"model": model, "stream": False})
@@ -84,6 +84,20 @@ def main():
         qa = dict(chat, model="qwen3.5:2b", keep_alive=0)
         assert api("/api/chat", qa)["message"]["content"]
         assert api("/v1/chat/completions", qa, compat)["choices"][0]["message"]["content"]
+
+        decision_body = {"model": "tev1:0.8b", "state": "Hello, I was charged twice.", "keep_alive": 0,
+                         "questions": {"team": {"type": "choice", "instructions": "Which team should handle this?",
+                                                "criteria": {"billing": "Payments and refunds", "technical": "Software bugs"}},
+                                       "greeting": {"type": "noul", "instructions": "Does the message contain a greeting?"},
+                                       "urgency": {"type": "score", "instructions": "Rate urgency.", "criteria": ["Routine", "Urgent"]}}}
+        assert "decision" in api("/api/show", {"model": "tev1:0.8b"})["capabilities"]
+        for endpoint in (base, compat):
+            answers = api("/v1/systemone", decision_body, endpoint)["answers"]
+            assert answers["team"]["choice"] in ["billing", "technical"]
+            assert 0 <= answers["team"]["confidence"] <= 1
+            assert 0 <= answers["greeting"]["noul"] <= 1
+            assert "score" in answers["urgency"]
+        print("PASS: real local Tev1 decision capability and Choice/Noul/Score on both ports", flush=True)
 
         # Read one SSE chunk, then close the socket during a long generation.
         stream_body = dict(chat, stream=True, messages=[{"role": "user", "content": "Write a very long story."}],

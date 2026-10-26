@@ -1009,6 +1009,7 @@ func (s *Server) SystemOneHandler(c *gin.Context) {
 		handleScheduleError(c, req.Model, err)
 		return
 	}
+	defer s.beginInference(c, req.Model)()
 	textLimit := 64 << 10
 	if m.Config.Renderer == "kev" {
 		// Kev shares the state across question rows and admits up to 65,536

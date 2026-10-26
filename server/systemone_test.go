@@ -31,9 +31,13 @@ type systemOneTestRunner struct {
 	calls   int
 	native  bool
 	state   json.RawMessage
+	onScore func()
 }
 
 func (r *systemOneTestRunner) SystemOne(ctx context.Context, state, questions json.RawMessage, images []api.ImageData) (json.RawMessage, json.RawMessage, error) {
+	if r.onScore != nil {
+		r.onScore()
+	}
 	r.calls++
 	r.native = true
 	r.state = state
@@ -51,6 +55,9 @@ func (r *systemOneTestRunner) SystemOne(ctx context.Context, state, questions js
 }
 
 func (r *systemOneTestRunner) Score(ctx context.Context, input llm.ScoreRequest) (llm.ScoreResponse, error) {
+	if r.onScore != nil {
+		r.onScore()
+	}
 	r.calls++
 	r.request = input
 	if len(input.Fields) > 0 {
@@ -317,6 +324,12 @@ func TestSystemOneHandler(t *testing.T) {
 			runner := &systemOneTestRunner{err: tt.err}
 			ref := &runnerRef{llama: runner, refCount: 1, sessionDuration: time.Hour}
 			s := newServerWithMockRunner(t, &runner.mockRunner)
+			s.gatewayMetrics = newGatewayTracker()
+			runner.onScore = func() {
+				if s.gatewayMetrics.snapshot()["active_slots"] != 1 {
+					t.Error("decision scoring missing from active slots")
+				}
+			}
 			s.sched.loadFn = func(req *LlmRequest, _ ml.SystemInfo, _ []ml.DeviceInfo, _ bool) bool {
 				runner.contextLength = req.opts.NumCtx
 				ref.model.Store(req.model)
@@ -334,6 +347,9 @@ func TestSystemOneHandler(t *testing.T) {
 			req.ContentLength = -1
 			req.Header.Set("Content-Type", "application/json")
 			router.ServeHTTP(w, req)
+			if s.gatewayMetrics.snapshot()["active_slots"] != 0 {
+				t.Fatal("decision request leaked its active slot")
+			}
 			if w.Code != tt.status || runner.calls != tt.calls {
 				t.Fatalf("status=%d calls=%d body=%s", w.Code, runner.calls, w.Body)
 			}
